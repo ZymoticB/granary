@@ -38,7 +38,7 @@ def visit_enum(ctype, is_value, need_value, order_num):
   for expr in ctype.fields.values():
     order_num = max(
         order_num, visit_expression(ctype, expr, order_num))
-  
+
   order_numbers[ctype] = order_num
   return order_num
 
@@ -153,7 +153,7 @@ TAB = ""
 
 def visit_ctype(ctype, is_value, need_value):
   global order_numbers, seen, CHANGED
- 
+
   seen_id = (is_value, need_value, ctype)
   order_num = order_numbers[seen_id]
   old_order_num = order_num
@@ -220,7 +220,7 @@ def should_include_unit(unit_decls, unit_toks, is_typedef):
 # This is mostly to address trivial cases of the following three
 # specific problems:
 #     i)   typedef struct foo { ... } foo;
-#     ii)  enum { X }; ... enum { X }; 
+#     ii)  enum { X }; ... enum { X };
 #     iii) struct foo { }; ... struct foo { };
 def process_redundant_decls(units):
   units = list(units)
@@ -241,14 +241,14 @@ def process_redundant_decls(units):
   for unit_decls, unit_toks, is_typedef in units:
     for ctype, name in unit_decls:
       base_ctype = ctype.base_type()
-      
+
       # look for duplicate definitions of enumerator constants
       # and delete one of the enums (containing the duplicate
       # constant).
       if isinstance(base_ctype, CTypeEnum):
         if ctype.is_type_use():
           continue
-        
+
         # the union has no name; delete it. This helps us avoid
         # issues in the kernel where an enumerator constant's value
         # is dependent on the return from an inline function, which
@@ -329,7 +329,7 @@ def process_redundant_decls(units):
 #   toks:         A list of tokens representing a function
 #                 declaration and which contains zero-or-more
 #                 function attributes.
-# 
+#
 # Returns:
 #   A list of tokens without any function attributes.
 def remove_function_attributes(decls, toks):
@@ -435,7 +435,7 @@ def process_units(units):
 
 if "__main__" == __name__:
   import sys
-  
+
   with open(sys.argv[1]) as lines_:
     buff = "".join(lines_)
     tokens = CTokenizer(buff)

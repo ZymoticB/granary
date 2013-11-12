@@ -12,7 +12,8 @@ Copyright:    Copyright 2012-2013 Peter Goodman, all rights reserved.
 import re
 import fileinput
 import os
-from ignore import IGNORE
+import sys
+from ignore import IGNORE, WHITELIST
 
 FULL_PATH = re.compile("(/([^/]+/)+([^ \n\r\t=>()]*))")
 SYMBOL_NAME = re.compile("^[a-zA-Z_][a-zA-Z_0-9]*$")
@@ -77,7 +78,7 @@ if "__main__" == __name__:
     elif ".so" in dll:
       get_symbols_linux(dll, symbols)
 
-  for symbol in symbols - IGNORE:
+  for symbol in [s for s in symbols if s in WHITELIST]:
     O("#ifndef CAN_WRAP_", symbol)
     O("    DETACH(", symbol, ")")
     O("#endif")

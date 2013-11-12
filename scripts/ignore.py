@@ -7,9 +7,24 @@ Copyright:    Copyright 2012-2013 Peter Goodman, all rights reserved.
 import re
 
 # TODO: currently have linker or platform errors for these.
+WHITELIST = set([
+  "malloc",
+  "__libc_malloc",
+  "realloc",
+  "valloc",
+  "__libc_valloc",
+  "calloc",
+  "__libc_calloc",
+  "free",
+  "cfree",
+  "__libc_free",
+  "strlen",
+  "__libc_strlen",
+])
+
 IGNORE = set([
   "add_profil",
-  
+
   "profil",
   "unwhiteout",
   "zopen",
@@ -100,6 +115,8 @@ KERNEL_DEV = re.compile("dev_(emerg|alert|crit|err|warn|notice|info|debug|defaul
 
 def should_ignore(name):
   global IGNORE, KERNEL_DEV
+  if name not in WHITELIST:
+    return True
   if name in IGNORE:
     return True
 
@@ -108,5 +125,5 @@ def should_ignore(name):
 
   elif "printf" in name or "printk" in name:
     return True
-    
+
   return False

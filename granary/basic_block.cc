@@ -747,6 +747,7 @@ namespace granary {
         bool detach_tail_call(false);
         const app_pc detach_app_pc(unsafe_cast<app_pc>(&detach));
         unsigned byte_len(0);
+        unsigned num_decoded(0);
 
         // Ensure that the start PC of the basic block is always somewhere in
         // the instruction stream.
