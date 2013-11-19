@@ -19,6 +19,21 @@
 
 
 
+#define PUSH_LAST_REG_ASM_ARG(reg) \
+    push %%reg ;
+
+#define PUSH_REG_ASM_ARG(reg, rest) \
+    PUSH_LAST_REG_ASM_ARG(reg) \
+    rest
+
+#define POP_LAST_REG_ASM_ARG(reg) \
+    pop %%reg ;
+
+#define POP_REG_ASM_ARG(reg, rest) \
+    rest \
+    POP_LAST_REG_ASM_ARG(reg)
+
+
 #define PUSH_LAST_XMM_REG(off, reg) \
     movaps %reg, off(%rsp);
 
@@ -63,6 +78,9 @@
 #define POPA ALL_REGS(POP_REG, POP_LAST_REG)
 #define PUSHA_SIZE ALL_REGS(PLUS_EIGHT, EIGHT)
 
+#define PUSHA_ASM_ARG ALL_REGS(PUSH_REG_ASM_ARG, PUSH_LAST_REG_ASM_ARG)
+#define POPA_ASM_ARG ALL_REGS(POP_REG_ASM_ARG, POP_LAST_REG_ASM_ARG)
+
 /// use to save and restore call-clobbered registers
 #define PUSHA_CALL ALL_CALL_REGS(PUSH_REG, PUSH_LAST_REG)
 #define POPA_CALL ALL_CALL_REGS(POP_REG, POP_LAST_REG)
@@ -77,7 +95,7 @@
     ALL_XMM_REGS(POP_XMM_REG, POP_LAST_XMM_REG) \
     lea 256(%rsp), %rsp; \
 
-#if GRANARY_IN_KERNEL || !GRANARY_USE_PIC
+#if CONFIG_ENV_KERNEL || !GRANARY_USE_PIC
 #   define SHARED_SYMBOL SYMBOL
 #else
 #   ifdef __APPLE__
@@ -87,7 +105,7 @@
 #   endif
 #endif
 
-#if GRANARY_IN_KERNEL || !GRANARY_USE_PIC
+#if CONFIG_ENV_KERNEL || !GRANARY_USE_PIC
 #   define EXTERN_SYMBOL SYMBOL
 #else
 #   define EXTERN_SYMBOL SHARED_SYMBOL

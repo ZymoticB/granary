@@ -16,12 +16,7 @@ namespace granary {
 
     /// Operand that represents a PC stored somewhere in memory.
     operand mem_pc_(app_pc *pc) {
-        operand op;
-        op.kind = dynamorio::BASE_DISP_kind;
-        op.value.addr = pc;
-        op.size = dynamorio::OPSZ_8;
-        op.seg.segment = dynamorio::DR_REG_NULL;
-        return op;
+        return absmem_(pc, dynamorio::OPSZ_8);
     }
 
 
@@ -125,15 +120,9 @@ namespace granary {
         ASSERT(instr);
         ASSERT(pc_);
 
-#if CONFIG_ENABLE_ASSERTIONS
+#if CONFIG_DEBUG_ASSERTIONS
         if(dynamorio::OP_int3 == op_code()) {
             granary_do_break_on_translate = true;
-        }
-
-        if(is_patchable()) {
-            const uintptr_t addr(reinterpret_cast<uintptr_t>(pc_));
-            ASSERT(((addr % CONFIG_MIN_CACHE_LINE_SIZE) + 5)
-                    <= CONFIG_MIN_CACHE_LINE_SIZE);
         }
 #endif
 
@@ -146,7 +135,7 @@ namespace granary {
         instr->translation = pc_;
         instr->length = (ret - pc_);
 
-#if CONFIG_CHECK_INSTRUCTION_ENCODE
+#if CONFIG_DEBUG_CHECK_INSTRUCTION_ENCODE
         if(dynamorio::OP_LABEL != instr->opcode) {
             app_pc pc_2(pc_);
             instruction in(decode(&pc_2));
@@ -374,7 +363,7 @@ namespace granary {
     }
 
 
-#if CONFIG_ENABLE_ASSERTIONS
+#if CONFIG_DEBUG_ASSERTIONS
     static void check_list_consistency(
         dynamorio::instr_t *first,
         dynamorio::instr_t *last,
@@ -611,7 +600,7 @@ namespace granary {
             return start_pc;
         }
 
-#if CONFIG_ENABLE_ASSERTIONS
+#if CONFIG_DEBUG_ASSERTIONS
         for(unsigned i(0); i < max_size; ++i) {
             ASSERT(start_pc[i] == 0xCC);
         }
@@ -701,7 +690,7 @@ namespace granary {
     }
 
 
-#if !GRANARY_IN_KERNEL
+#if !CONFIG_ENV_KERNEL
     enum {
         X86_INT3 = 0xCC,
         X86_REPZ = 0xF3,
@@ -717,25 +706,9 @@ namespace granary {
         app_pc *pc_,
         instruction_decode_constraint constraint
     ) throw() {
-        if(true || !instr) { // TODO!!! Double check this, try to remove 'true'.
-            instr = make_instr();
-        } else {
-            // TODO: Improve this for the future.
-            dynamorio::instr_reset(DCONTEXT, instr);
-            dynamorio::instr_set_x86_mode(instr, false);
-            instr->flags |= dynamorio::INSTR_HAS_CUSTOM_STUB;
-        }
+        instr = make_instr();
 
         uint8_t *byte_pc(*pc_);
-
-#if !GRANARY_IN_KERNEL
-        // Deal with `REPZ RET` in user space with potential GDB breakpoints.
-        if((X86_INT3 == byte_pc[0] || X86_REPZ == byte_pc[0])
-        && X86_RET_SHORT == byte_pc[1]) {
-            ++pc_;
-            ++byte_pc;
-        }
-#endif
 
         *pc_ = dynamorio::decode_raw(DCONTEXT, byte_pc, instr);
         dynamorio::decode(DCONTEXT, byte_pc, instr);

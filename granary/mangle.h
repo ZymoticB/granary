@@ -28,6 +28,12 @@ namespace granary {
     struct instruction_list_mangler {
     private:
 
+        enum ibl_entry_kind {
+            IBL_ENTRY_CALL,
+            IBL_ENTRY_RETURN,
+            IBL_ENTRY_JMP
+        };
+
         friend struct code_cache;
 
         cpu_state_handle cpu;
@@ -40,14 +46,6 @@ namespace granary {
         // to use relative addressing.
         const const_app_pc estimator_pc;
 
-        instruction dbl_entry_stub(
-            instruction patched_in,
-            app_pc dbl_routine
-        ) throw();
-
-        void mangle_sti(instruction in) throw();
-        void mangle_cli(instruction in) throw();
-
         void mangle_cti(instruction in) throw();
 
         void mangle_direct_cti(
@@ -58,7 +56,6 @@ namespace granary {
 
         void mangle_indirect_cti(
             instruction in,
-            operand op,
             instrumentation_policy target_policy
         ) throw();
 
@@ -72,9 +69,12 @@ namespace granary {
 
     private:
 
+
         void mangle_lea(instruction in) throw();
 
+
         void mangle_far_memory_refs(instruction in) throw();
+
 
         void mangle_far_memory_push(
             instruction in,
@@ -83,6 +83,7 @@ namespace granary {
             dynamorio::reg_id_t spill_reg_id,
             uint64_t addr
         ) throw();
+
 
         void mangle_far_memory_pop(
             instruction in,
@@ -93,30 +94,13 @@ namespace granary {
         ) throw();
 
 
-        /// Get the direct branch lookip (DBL) entry point for a direct operand.
-        app_pc dbl_entry_routine(
-            instruction in,
-            mangled_address am
-        ) throw();
-
-
-        enum ibl_entry_kind {
-            IBL_ENTRY_CALL,
-            IBL_ENTRY_RETURN,
-            IBL_ENTRY_JMP
-        };
-
-
         /// Make an IBL stub. This is used by indirect jmps, calls, and returns.
         /// The purpose of the stub is to set up the registers and stack in a
         /// canonical way for entry into the indirect branch lookup routine.
         void mangle_ibl_lookup(
-            instruction_list &insertion_list,
-            instruction insertion_point,
+            instruction cti,
             instrumentation_policy target_policy,
-            operand target,
-            ibl_entry_kind ibl_kind,
-            app_pc cti_in
+            ibl_entry_kind ibl_kind
         ) throw();
 
 

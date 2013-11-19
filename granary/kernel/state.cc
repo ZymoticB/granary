@@ -27,6 +27,10 @@ extern "C" {
 
     /// Mark a page as being only readable.
     void kernel_make_page_read_only(void *addr);
+
+
+    /// Get the kernel's actual IDT base.
+    descriptor_t *kernel_get_idt_table(void);
 }
 
 
@@ -42,7 +46,7 @@ namespace granary {
     cpu_state *CPU_STATES[MAX_NUM_CPUS] = {nullptr};
 
 
-#if CONFIG_CHECK_CPU_ACCESS_SAFE
+#if CONFIG_DEBUG_CHECK_CPU_ACCESS_SAFE
     /// Check that it's safe to access CPU-private state.
     __attribute__((noinline))
     void check_cpu_access_safety(void) {
@@ -56,7 +60,7 @@ namespace granary {
 
     extern "C" uint64_t *granary_get_private_stack_top(void)
     {
-#if CONFIG_CHECK_CPU_ACCESS_SAFE && 0
+#if CONFIG_DEBUG_CHECK_CPU_ACCESS_SAFE && 0
         check_cpu_access_safety();
 #endif
         return &((*kernel_get_cpu_state(CPU_STATES))->percpu_stack.top[0]);
@@ -90,19 +94,7 @@ namespace granary {
     /// pages around it.
     struct poison {
         char poison[PAGE_SIZE];
-    } __attribute__((packed, aligned(CONFIG_MEMORY_PAGE_SIZE)));
-
-
-    struct poisoned_cpu_state {
-        poison before;
-        cpu_state state;
-        poison after;
-    } __attribute__((aligned(CONFIG_MEMORY_PAGE_SIZE)));
-
-
-    struct unaligned_cpu_state {
-        char mem[sizeof(poisoned_cpu_state) + CONFIG_MEMORY_PAGE_SIZE];
-    };
+    } __attribute__((packed, aligned(CONFIG_ARCH_PAGE_SIZE)));
 
 
     static std::atomic<unsigned> NEXT_CPU_ID = ATOMIC_VAR_INIT(0U);
@@ -111,23 +103,28 @@ namespace granary {
     /// Allocate and initialise state for each CPU.
     static void alloc_cpu_state(void) {
         cpu_state **state_ptr(kernel_get_cpu_state(CPU_STATES));
-        unaligned_cpu_state *unaligned_state_ptr(
-            allocate_memory<unaligned_cpu_state>());
-        uintptr_t state_addr(reinterpret_cast<uintptr_t>(unaligned_state_ptr));
-        poisoned_cpu_state *poisoned_state(unsafe_cast<poisoned_cpu_state *>(
-            state_addr + ALIGN_TO(state_addr, CONFIG_MEMORY_PAGE_SIZE)));
 
-        *state_ptr = &(poisoned_state->state);
-        (*state_ptr)->id = NEXT_CPU_ID.fetch_add(1);
+        ASSERT(nullptr == *state_ptr);
 
-#if CONFIG_HANDLE_INTERRUPTS || CONFIG_INSTRUMENT_HOST
+        *state_ptr = allocate_memory<cpu_state>();
+        cpu_state *state(*state_ptr);
+        state->id = NEXT_CPU_ID.fetch_add(1);
+
+#if CONFIG_FEATURE_HANDLE_INTERRUPTS || CONFIG_FEATURE_INSTRUMENT_HOST
         // Get a copy of the native IDTR.
-        get_idtr(&(poisoned_state->state.native_idtr));
+        get_idtr(&(state->native_idtr));
+
+        // A bit of defensive programming here; we're concerned that the kernel
+        // has loaded the IDTR with a fixed, read-only address so as to not
+        // leak the kernel's base address.
+        if(!is_host_address(state->native_idtr.base)) {
+            state->native_idtr.base = kernel_get_idt_table();
+        }
 #endif
 
-#if CONFIG_INSTRUMENT_HOST
+#if CONFIG_FEATURE_INSTRUMENT_HOST
         /// Get a copy of the native MSR_LSTAR model-specific register.
-        poisoned_state->state.native_msr_lstar = get_msr(MSR_LSTAR);
+        state->native_msr_lstar = get_msr(MSR_LSTAR);
 #endif
     }
 
@@ -142,11 +139,11 @@ namespace granary {
     static void set_percpu(void) {
         cpu_state_handle cpu;
 
-#if CONFIG_HANDLE_INTERRUPTS
+#if CONFIG_FEATURE_HANDLE_INTERRUPTS && !CONFIG_DEBUG_INITIALISE
         set_idtr(&(cpu->idtr));
 #endif
 
-#if CONFIG_INSTRUMENT_HOST
+#if CONFIG_FEATURE_INSTRUMENT_HOST && !CONFIG_DEBUG_INITIALISE
         set_msr(MSR_LSTAR, cpu->msr_lstar);
 #endif
 
@@ -156,31 +153,14 @@ namespace granary {
 
     void cpu_state::init_late(void) throw() {
         eflags flags;
-
-        enum {
-            NEG_OFFSET = offsetof(poisoned_cpu_state, state),
-            POS_OFFSET = offsetof(poisoned_cpu_state, after) - NEG_OFFSET
-        };
-
         for(unsigned i(0); i < MAX_NUM_CPUS; ++i) {
 
             if(!CPU_STATES[i]) {
                 continue;
             }
 
-            // Page protect the poisoned pages around the CPU state.
-            kernel_make_page_read_only(
-                unsafe_cast<char *>(CPU_STATES[i]) - NEG_OFFSET);
-            kernel_make_page_read_only(
-                unsafe_cast<char *>(CPU_STATES[i]) + POS_OFFSET);
-
-#if CONFIG_HANDLE_INTERRUPTS
-
-            // Make sure that we can read the kernel's IDT.
-            kernel_make_page_read_only(
-                unsafe_cast<char *>(CPU_STATES[i]->native_idtr.base));
-
-#   if CONFIG_ENABLE_INTERRUPT_DELAY
+#if CONFIG_FEATURE_HANDLE_INTERRUPTS
+#   if CONFIG_FEATURE_INTERRUPT_DELAY
             // Allocate space for interrupt delay handlers.
             CPU_STATES[i]->interrupt_delay_handler = reinterpret_cast<app_pc>(
                 global_state::FRAGMENT_ALLOCATOR-> \
@@ -196,7 +176,7 @@ namespace granary {
             }
             granary_store_flags(flags);
 #endif
-#if CONFIG_INSTRUMENT_HOST
+#if CONFIG_FEATURE_INSTRUMENT_HOST
 
             // Create this CPUs SYSCALL entry point.
             flags = granary_disable_interrupts();
@@ -210,7 +190,7 @@ namespace granary {
             granary_store_flags(flags);
 #endif
 
-#if CONFIG_HANDLE_INTERRUPTS
+#if CONFIG_FEATURE_HANDLE_INTERRUPTS
             // Page protect the IDTs.
             kernel_make_page_read_only(CPU_STATES[i]->idtr.base);
 #endif

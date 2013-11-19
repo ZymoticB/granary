@@ -36,7 +36,7 @@ namespace granary {
     }
 
 
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
     /// List of static initialisers to be run at granary's kernel initialiser
     /// within a `stop_machine` call.
     static static_init_list STATIC_INIT_LIST_SYNC_HEAD;
@@ -52,7 +52,7 @@ namespace granary {
 
         STATIC_INIT_LIST_SYNC_TAIL = &entry;
     }
-#endif /* GRANARY_IN_KERNEL */
+#endif /* CONFIG_ENV_KERNEL */
 
 
     extern "C" {
@@ -67,14 +67,17 @@ namespace granary {
     }
 
 
-    IF_USER( namespace detail { extern void init_code_cache(void) throw(); } )
+    namespace detail {
+        extern void init_code_cache(void) throw();
+    }
 
 
     /// Initialise granary.
     void init(void) throw() {
 
+        detail::init_code_cache();
+
         IF_KERNEL( cpu_state::init_early(); )
-        IF_USER( detail::init_code_cache(); )
 
         // Run all static initialiser functions.
         static_init_list *init(STATIC_INIT_LIST_HEAD.next);
@@ -90,13 +93,15 @@ namespace granary {
             cpu.free_transient_allocators();
 
             ASM(
-                "movq %0, %%rdi;"
+                "movq %0, %%" TO_STRING(ARG1) ";"
+                TO_STRING(PUSHA_ASM_ARG)
                 "callq " TO_STRING(SHARED_SYMBOL(granary_enter_private_stack)) ";"
                 "callq " TO_STRING(SHARED_SYMBOL(granary_do_init_on_private_stack)) ";"
                 "callq " TO_STRING(SHARED_SYMBOL(granary_exit_private_stack)) ";"
+                TO_STRING(POPA_ASM_ARG)
                 :
                 : "m"(init)
-                : "%rdi"
+                : "%" TO_STRING(ARG1)
             );
 
             IF_KERNEL( granary_store_flags(flags); )
@@ -110,7 +115,7 @@ namespace granary {
     }
 
 
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
 
     /// Returns true iff there is anything to run in a synchronised way.
     bool should_init_sync(void) throw() {
@@ -149,6 +154,6 @@ namespace granary {
             IF_KERNEL( granary_store_flags(flags); )
         }
     }
-#endif /* GRANARY_IN_KERNEL */
+#endif /* CONFIG_ENV_KERNEL */
 }
 

@@ -12,7 +12,7 @@
 
 #include "granary/globals.h"
 
-#if CONFIG_ENABLE_PERF_COUNTS
+#if CONFIG_DEBUG_PERF_COUNTS
 
 namespace granary {
 
@@ -24,6 +24,8 @@ namespace granary {
     struct perf {
 
         static void visit_trace(unsigned num_bbs) throw();
+        static void visit_split_block(void) throw();
+        static void visit_unsplittable_block(void) throw();
 
         static void visit_decoded(const instruction ) throw();
         static void visit_encoded(const instruction ) throw();
@@ -43,15 +45,17 @@ namespace granary {
         static void visit_ibl_miss(app_pc) throw();
         static void visit_ibl_conflict(app_pc) throw();
 
-        static void visit_dbl(const instruction_list &) throw();
-        static void visit_dbl_patch(const instruction_list &) throw();
-        static void visit_dbl_stub(unsigned) throw();
-
-        static void visit_rbl(const instruction_list &) throw();
+        static void visit_dbl_stub(void) throw();
+        static void visit_fall_through_dbl(void) throw();
+        static void visit_conditional_dbl(void) throw();
+        static void visit_patched_dbl(void) throw();
+        static void visit_patched_fall_through_dbl(void) throw();
+        static void visit_patched_conditional_dbl(void) throw();
 
         static void visit_mem_ref(unsigned) throw();
 
         static void visit_align_nop(unsigned) throw();
+        static void visit_align_prefix(void) throw();
 
         static void visit_functional_unit(void) throw();
 
@@ -59,7 +63,7 @@ namespace granary {
         static void visit_address_lookup_hit(void) throw();
         static void visit_address_lookup_cpu(bool) throw();
 
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
         static void visit_interrupt(void) throw();
         static void visit_recursive_interrupt(void) throw();
         static void visit_delayed_interrupt(void) throw();
@@ -72,6 +76,6 @@ namespace granary {
 
 }
 
-#endif /* CONFIG_ENABLE_PERF_COUNTS */
+#endif /* CONFIG_DEBUG_PERF_COUNTS */
 
 #endif /* Granary_PERF_H_ */

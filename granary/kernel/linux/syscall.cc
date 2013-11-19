@@ -12,7 +12,7 @@
 #include "granary/policy.h"
 #include "granary/code_cache.h"
 
-#if CONFIG_ENABLE_TRACE_ALLOCATOR && !CONFIG_TRACE_CPUS
+#if CONFIG_ENABLE_TRACE_ALLOCATOR && CONFIG_TRACE_ALLOCATE_ENTRY_SYSCALL
 #   define IF_CUSTOM_ALLOCATOR(...) __VA_ARGS__
 #else
 #   define IF_CUSTOM_ALLOCATOR(...)
@@ -22,7 +22,7 @@ namespace granary {
 
 #if defined(DETACH_ADDR_sys_call_table) \
 && DETACH_LENGTH_sys_call_table \
-&& CONFIG_INSTRUMENT_HOST
+&& CONFIG_FEATURE_INSTRUMENT_HOST
 
     enum {
         NUM_ENTRIES = DETACH_LENGTH_sys_call_table / sizeof(void *)
@@ -42,6 +42,8 @@ namespace granary {
         // Starting policy.
         instrumentation_policy policy(START_POLICY);
         policy.begins_functional_unit(true);
+        policy.in_host_context(true);
+        policy.return_address_in_code_cache(true);
 
         cpu_state_handle cpu;
 

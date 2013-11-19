@@ -391,7 +391,10 @@ opnd_create_instr_ex(instr_t *instr, opnd_size_t size, ushort shift)
     // code before the instruction), and if one does a JMP direct to the
     // instruction, then the second instrumentation might not behave correctly.
     // Using labels avoids such problems.
-    if(!((OP_LABEL == instr->opcode) || (1 & instr->granary_flags))) {
+    enum {
+        DONT_MANGLE = 1 << 0
+    };
+    if(OP_LABEL != instr->opcode && 0 == (DONT_MANGLE & instr->granary_flags)) {
         FAULT;
     }
 #endif
@@ -1748,9 +1751,8 @@ instr_create(dcontext_t *dcontext)
 void
 instr_destroy(dcontext_t *dcontext, instr_t *instr)
 {
-    instr_free(dcontext, instr);
-
 #ifndef GRANARY
+    instr_free(dcontext, instr);
     /* CAUTION: assumes that instr is not part of any instrlist */
     heap_free(dcontext, instr, sizeof(instr_t) HEAPACCT(ACCT_IR));
 #endif /* GRANARY */

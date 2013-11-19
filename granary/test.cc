@@ -14,7 +14,7 @@
 extern "C" {
 
 
-#if CONFIG_RUN_TEST_CASES
+#if CONFIG_DEBUG_RUN_TEST_CASES
     DONT_OPTIMISE int granary_test_return_true(void) {
         return 1;
     }
@@ -24,7 +24,7 @@ extern "C" {
     }
 #endif
 
-#if !GRANARY_IN_KERNEL
+#if !CONFIG_ENV_KERNEL
 
     DONT_OPTIMISE void granary_break_on_fault(void) {
         ASM("");
@@ -68,7 +68,7 @@ namespace granary {
     }
 
 
-#if CONFIG_CLIENT_HANDLE_INTERRUPT
+#if CONFIG_FEATURE_CLIENT_HANDLE_INTERRUPT
 
     /// Handle an interrupt in module code. Returns true iff the client
     /// handles the interrupt.
@@ -85,7 +85,7 @@ namespace granary {
 #endif
 
 
-#if CONFIG_RUN_TEST_CASES
+#if CONFIG_DEBUG_RUN_TEST_CASES
 
     /// List of test cases to run.
     static static_test_list STATIC_TEST_LIST_HEAD;
@@ -125,6 +125,8 @@ namespace granary {
         TEST_POLICY = granary::policy_for<granary::test_policy>();
         TEST_POLICY.force_attach(true);
         TEST_POLICY.return_address_in_code_cache(true);
+        TEST_POLICY.begins_functional_unit(true);
+        TEST_POLICY.in_host_context(false);
 
         static_test_list *test(STATIC_TEST_LIST_HEAD.next);
         for(; test; test = test->next) {
@@ -134,22 +136,24 @@ namespace granary {
                 IF_KERNEL( eflags flags = granary_disable_interrupts(); )
                 cpu_state_handle cpu;
                 IF_TEST( cpu->in_granary = false; )
-                cpu.free_transient_allocators();
+                enter(cpu);
 
                 ASM(
-                    "movq %0, %%rdi;"
-                    "callq " TO_STRING(SHARED_SYMBOL(granary_enter_private_stack)) ";"
+                    "movq %0, %%" TO_STRING(ARG1) ";"
+                    TO_STRING(PUSHA_ASM_ARG)
+                    IF_KERNEL( "callq " TO_STRING(SHARED_SYMBOL(granary_enter_private_stack)) ";" )
                     "callq " TO_STRING(SHARED_SYMBOL(granary_do_test_on_private_stack)) ";"
-                    "callq " TO_STRING(SHARED_SYMBOL(granary_exit_private_stack)) ";"
+                    IF_KERNEL( "callq " TO_STRING(SHARED_SYMBOL(granary_exit_private_stack)) ";" )
+                    TO_STRING(POPA_ASM_ARG)
                     :
                     : "m"(test)
-                    : "%rdi"
+                    : "%" TO_STRING(ARG1)
                 );
 
                 IF_KERNEL( granary_store_flags(flags); )
             }
         }
     }
-#endif /* CONFIG_RUN_TEST_CASES */
+#endif /* CONFIG_DEBUG_RUN_TEST_CASES */
 } /* granary */
 

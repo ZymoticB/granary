@@ -9,7 +9,9 @@
 
 #include "granary/perf.h"
 
-#if CONFIG_ENABLE_PERF_COUNTS
+#if CONFIG_DEBUG_PERF_COUNTS
+
+#define DUMP_IBL_INFO 0
 
 #include <atomic>
 
@@ -39,6 +41,8 @@ namespace granary {
 
     /// Performance counter for tracking basic blocks and their instructions.
     static std::atomic<unsigned> NUM_TRACES(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_UNSPLITTABLE_BBS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_SPLIT_BBS(ATOMIC_VAR_INIT(0U));
     static std::atomic<unsigned> NUM_TRACE_BBS(ATOMIC_VAR_INIT(0U));
     static std::atomic<unsigned> NUM_BBS(ATOMIC_VAR_INIT(0U));
     static std::atomic<unsigned> NUM_BB_INSTRUCTION_BYTES(ATOMIC_VAR_INIT(0U));
@@ -57,10 +61,12 @@ namespace granary {
     static std::atomic<unsigned> NUM_IBL_HTABLE_ENTRIES(ATOMIC_VAR_INIT(0U));
     static std::atomic<unsigned> NUM_IBL_MISSES(ATOMIC_VAR_INIT(0U));
     static std::atomic<unsigned> NUM_IBL_CONFLICTS(ATOMIC_VAR_INIT(0U));
-    static std::atomic<unsigned> NUM_DBL_INSTRUCTIONS(ATOMIC_VAR_INIT(0U));
-    static std::atomic<unsigned> NUM_DBL_STUB_INSTRUCTIONS(ATOMIC_VAR_INIT(0U));
-    static std::atomic<unsigned> NUM_DBL_PATCH_INSTRUCTIONS(ATOMIC_VAR_INIT(0U));
-    static std::atomic<unsigned> NUM_RBL_INSTRUCTIONS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_DBL_STUBS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_FALL_THROUGH_DBL_STUBS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_COND_DBL_STUBS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_PATCHED_DBL_STUBS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_PATCHED_FALL_THROUGH_DBL_STUBS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_PATCHED_COND_DBL_STUBS(ATOMIC_VAR_INIT(0U));
 
 
     /// Track the number of functional units (as determined by the temporary
@@ -76,6 +82,7 @@ namespace granary {
 
     /// NOPs added to get specific alignments.
     static std::atomic<unsigned> NUM_ALIGN_NOP_INSTRUCTIONS(ATOMIC_VAR_INIT(0U));
+    static std::atomic<unsigned> NUM_ALIGN_PREFIXES(ATOMIC_VAR_INIT(0U));
 
 
     /// Tracking the number if code cache address lookups.
@@ -86,7 +93,7 @@ namespace granary {
     static std::atomic<unsigned> NUM_ADDRESS_LOOKUPS_CPU_MISPREDICT(ATOMIC_VAR_INIT(0U));
 
 
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
     static std::atomic<unsigned long> NUM_INTERRUPTS(ATOMIC_VAR_INIT(0UL));
     static std::atomic<unsigned> NUM_RECURSIVE_INTERRUPTS(ATOMIC_VAR_INIT(0U));
     static std::atomic<unsigned long> NUM_DELAYED_INTERRUPTS(ATOMIC_VAR_INIT(0UL));
@@ -134,6 +141,16 @@ namespace granary {
             NUM_TRACES.fetch_add(1);
             NUM_TRACE_BBS.fetch_add(num_bbs);
         }
+    }
+
+
+    void perf::visit_split_block(void) throw() {
+        NUM_SPLIT_BBS.fetch_add(1);
+    }
+
+
+    void perf::visit_unsplittable_block(void) throw() {
+        NUM_UNSPLITTABLE_BBS.fetch_add(1);
     }
 
 
@@ -211,19 +228,35 @@ namespace granary {
     }
 
 
-    void perf::visit_dbl(const instruction_list &ls) throw() {
-        NUM_DBL_INSTRUCTIONS.fetch_add(ls.length());
+    void perf::visit_dbl_stub(void) throw() {
+        NUM_DBL_STUBS.fetch_add(1);
     }
 
 
-    void perf::visit_dbl_patch(const instruction_list &ls) throw() {
-        NUM_DBL_PATCH_INSTRUCTIONS.fetch_add(ls.length());
+    void perf::visit_fall_through_dbl(void) throw() {
+        NUM_FALL_THROUGH_DBL_STUBS.fetch_add(1);
     }
 
 
-    void perf::visit_dbl_stub(unsigned num) throw() {
-        NUM_DBL_STUB_INSTRUCTIONS.fetch_add(num);
+    void perf::visit_conditional_dbl(void) throw() {
+        NUM_COND_DBL_STUBS.fetch_add(1);
     }
+
+
+    void perf::visit_patched_dbl(void) throw() {
+        NUM_PATCHED_DBL_STUBS.fetch_add(1);
+    }
+
+
+    void perf::visit_patched_fall_through_dbl(void) throw() {
+        NUM_PATCHED_FALL_THROUGH_DBL_STUBS.fetch_add(1);
+    }
+
+
+    void perf::visit_patched_conditional_dbl(void) throw() {
+        NUM_PATCHED_COND_DBL_STUBS.fetch_add(1);
+    }
+
 
 
     void perf::visit_mem_ref(unsigned num) throw() {
@@ -236,12 +269,17 @@ namespace granary {
     }
 
 
+    void perf::visit_align_prefix(void) throw() {
+        NUM_ALIGN_PREFIXES.fetch_add(1);
+    }
+
+
     void perf::visit_functional_unit(void) throw() {
         NUM_FUNCTIONAL_UNITS.fetch_add(1);
     }
 
 
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
     void perf::visit_interrupt(void) throw() {
         NUM_INTERRUPTS.fetch_add(1);
     }
@@ -266,7 +304,7 @@ namespace granary {
 #endif
 
     // If we're in the kernel, and regardless of
-#if GRANARY_IN_KERNEL && defined(DETACH_ADDR_printk)
+#if CONFIG_ENV_KERNEL && defined(DETACH_ADDR_printk)
     extern "C" {
         extern int printk(const char *, ...);
     }
@@ -287,10 +325,14 @@ namespace granary {
 
         printf("Number of traces: %u\n",
             NUM_TRACES.load());
-        printf("Number of basics blocks in a trace: %u\n",
+        printf("Number of basics blocks in traces: %u\n",
             NUM_TRACE_BBS.load());
-        printf("Total number of basic blocks: %u\n",
+        printf("Number of basic blocks: %u\n",
             NUM_BBS.load());
+        printf("Number of split basic blocks: %u\n",
+            NUM_SPLIT_BBS.load());
+        printf("Number of non-splittable basic blocks: %u\n",
+            NUM_UNSPLITTABLE_BBS.load());
         printf("Number of functional units: %u\n",
             NUM_FUNCTIONAL_UNITS.load());
         printf("Number of application instruction bytes: %u\n\n",
@@ -317,17 +359,28 @@ namespace granary {
         printf("Number of IBL exit instructions: %u\n\n",
             NUM_IBL_EXIT_INSTRUCTIONS.load());
 
-        printf("Number of DBL entry instructions: %u\n",
-            NUM_DBL_INSTRUCTIONS.load());
-        printf("Number of DBL patch-stub instructions: %u\n",
-            NUM_DBL_STUB_INSTRUCTIONS.load());
-        printf("Number of DBL patch-setup instructions: %u\n\n",
-            NUM_DBL_PATCH_INSTRUCTIONS.load());
+        // TODO!
+
+        printf("Number of DBL stubs: %u\n",
+            NUM_DBL_STUBS.load());
+        printf("Number of fall-through DBL stubs: %u\n",
+            NUM_FALL_THROUGH_DBL_STUBS.load());
+        printf("Number of conditional branches: %u\n",
+            NUM_COND_DBL_STUBS.load());
+        printf("Number of patched branches: %u\n",
+            NUM_PATCHED_DBL_STUBS.load());
+        printf("Number of patched conditional branches: %u\n",
+            NUM_PATCHED_COND_DBL_STUBS.load());
+        printf("Number of patched fall-through branches: %u\n\n",
+            NUM_PATCHED_FALL_THROUGH_DBL_STUBS.load());
 
         printf("Number of extra instructions to mangle memory refs: %u\n\n",
             NUM_MEM_REF_INSTRUCTIONS.load());
-        printf("Number of alignment NOPs: %u\n\n",
+
+        printf("Number of alignment NOPs: %u\n",
             NUM_ALIGN_NOP_INSTRUCTIONS.load());
+        printf("Number of alignment prefixes: %u\n\n",
+            NUM_ALIGN_PREFIXES.load());
 
         printf("Number of global code cache address lookups: %u\n",
             NUM_ADDRESS_LOOKUPS.load());
@@ -338,7 +391,7 @@ namespace granary {
         printf("Number misses in the cpu code cache(s): %u\n\n",
             NUM_ADDRESS_LOOKUPS_CPU_MISS.load());
 
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
         printf("Number of interrupts: %lu\n",
             NUM_INTERRUPTS.load());
         printf("Number of delayed interrupts: %lu\n",
@@ -349,6 +402,7 @@ namespace granary {
             NUM_BAD_MODULE_EXECS.load());
 #endif
 
+#if DUMP_IBL_INFO
         if(NUM_IBL_CONFLICTS.load()) {
             printf("IBL Targets:\n");
             char buff[200] = {'\0'};
@@ -379,9 +433,10 @@ namespace granary {
 
             printf("\n\n");
         }
+#endif
     }
 }
 
 
-#endif /* CONFIG_ENABLE_PERF_COUNTS */
+#endif /* CONFIG_DEBUG_PERF_COUNTS */
 

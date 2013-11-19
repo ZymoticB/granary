@@ -38,20 +38,20 @@ namespace client {
             NUM_HIGH_ORDER_BITS         = WP_COUNTER_INDEX_WIDTH,
 
             /// Number of inherited index bits.
-            NUM_INHERITED_INDEX_BITS      = WP_INHERITED_INDEX_WIDTH,
+            NUM_INHERITED_INDEX_BITS    = WP_INHERITED_INDEX_WIDTH,
 
             /// Offset of inherited index bits.
-            INHERITED_INDEX_OFFSET        = WP_INHERITED_INDEX_GRANULARITY,
+            INHERITED_INDEX_OFFSET      = WP_INHERITED_INDEX_GRANULARITY,
 
             /// Mask for extracting the inherited index.
 #if WP_USE_INHERITED_INDEX
-            INHERITED_INDEX_MASK          = (
+            INHERITED_INDEX_MASK        = (
                 (((~0ULL)
                     << (NUM_BITS_PER_ADDR - NUM_INHERITED_INDEX_BITS))
                     >> (NUM_BITS_PER_ADDR - NUM_INHERITED_INDEX_BITS
                                           - INHERITED_INDEX_OFFSET))),
 #else
-            INHERITED_INDEX_MASK          = (1 << NUM_INHERITED_INDEX_BITS) - 1,
+            INHERITED_INDEX_MASK        = (1 << NUM_INHERITED_INDEX_BITS) - 1,
 #endif
 
             /// Maximum counter index (inclusive).
@@ -246,18 +246,6 @@ namespace client {
         ) throw();
 
 
-#   if !GRANARY_IN_KERNEL
-        /// Add in a user space redzone guard if necessary. This looks for a PUSH
-        /// instruction anywhere between `first` and `last` and if it finds one then
-        /// it guards the entire instrumented block with a redzone shift.
-        void guard_redzone(
-            granary::instruction_list &ls,
-            granary::instruction first,
-            granary::instruction last
-        ) throw();
-#   endif /* GRANARY_IN_KERNEL */
-
-
 #endif /* GRANARY_DONT_INCLUDE_CSTDLIB */
 
 
@@ -269,7 +257,7 @@ namespace client {
 
         /// Returns true iff an address is watched.
         inline bool is_watched_address(uintptr_t ptr) throw() {
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
             enum {
                 MASK_47_48 = (USER_OR_MASK >> 1) | USER_OR_MASK
             };
@@ -288,7 +276,7 @@ namespace client {
         /// Returns the unwatched version of an address, regardless of if it's
         /// watched.
         inline uintptr_t unwatched_address(uintptr_t ptr) throw() {
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
             return ptr | (~CLEAR_INDEX_MASK);
 #else
             return ptr & CLEAR_INDEX_MASK;
@@ -452,7 +440,7 @@ namespace client {
                 "`add_watchpoint` expects an integral/pointer operand.");
 
             uintptr_t ptr(granary::unsafe_cast<uintptr_t>(ptr_));
-#if GRANARY_IN_KERNEL
+#if CONFIG_ENV_KERNEL
             ptr &= DISTINGUISHING_BIT_MASK;
 #else
             ptr |= DISTINGUISHING_BIT_MASK;
@@ -713,8 +701,6 @@ namespace client {
                         Watcher::visit_write(bb, ls, tracker, i);
                     }
                 }
-
-                IF_USER( wp::guard_redzone(ls, first, last); )
             }
 
             // Apply any minor peephole optimisations to get rid of redundant
@@ -741,7 +727,7 @@ namespace client {
             granary::basic_block_state &bb,
             granary::instruction_list &ls
         ) throw() {
-#if !WP_TRANSITIVE_INSTRUMENT_HOST && !CONFIG_INSTRUMENT_HOST
+#if !WP_TRANSITIVE_INSTRUMENT_HOST && !CONFIG_FEATURE_INSTRUMENT_HOST
             using namespace granary;
 
             // Force Granary to detach on exiting each basic block.
@@ -775,7 +761,7 @@ namespace client {
         }
 
 
-#if CONFIG_CLIENT_HANDLE_INTERRUPT
+#if CONFIG_FEATURE_CLIENT_HANDLE_INTERRUPT
         /// Defers to the `Watcher` to decide how it will handle the interrupt.
         granary::interrupt_handled_state handle_interrupt(
             granary::cpu_state_handle cpu,
@@ -817,7 +803,7 @@ namespace client {
                 unsigned i \
             ) throw(); \
             \
-            IF_CONFIG_CLIENT_HANDLE_INTERRUPT( \
+            IF_CONFIG_FEATURE_CLIENT_HANDLE_INTERRUPT( \
             static granary::interrupt_handled_state handle_interrupt( \
                 granary::cpu_state_handle cpu, \
                 granary::thread_state_handle thread, \
@@ -863,7 +849,7 @@ namespace client {
     }
 
 
-#if CONFIG_CLIENT_HANDLE_INTERRUPT
+#if CONFIG_FEATURE_CLIENT_HANDLE_INTERRUPT
 #   define DEFINE_INTERRUPT_VISITOR(rw_policy_name, ...) \
         namespace wp { \
             interrupt_handled_state rw_policy_name::handle_interrupt( \

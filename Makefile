@@ -111,9 +111,13 @@ ifeq ($(UNAME),Darwin) # Mac OS X
 endif
 
 
+GR_CLANG = 0
+GR_GCC = 0
+
 # Compilation options that are conditional on the compiler
 ifneq (,$(findstring clang,$(GR_CC))) # clang
-
+	
+	GR_CLANG = 1
 	GR_CC_FLAGS += -Wno-null-dereference -Wno-unused-value -Wstrict-overflow=4
 	GR_CXX_FLAGS += -Wno-gnu -Wno-attributes 
 	GR_CXX_STD = -std=c++11
@@ -145,6 +149,7 @@ else
 endif
 
 ifneq (,$(findstring gcc,$(GR_CC))) # gcc
+	GR_GCC = 1
 	GR_CC_FLAGS += -fdiagnostics-show-option
 	GR_TYPE_CC_FLAGS += -fdiagnostics-show-option
 	GR_CXX_FLAGS += -fdiagnostics-show-option -fno-check-new
@@ -185,6 +190,7 @@ GR_OBJS += $(BIN_DIR)/granary/detach.o
 GR_OBJS += $(BIN_DIR)/granary/state.o
 GR_OBJS += $(BIN_DIR)/granary/mangle.o
 GR_OBJS += $(BIN_DIR)/granary/ibl.o
+GR_OBJS += $(BIN_DIR)/granary/dbl.o
 GR_OBJS += $(BIN_DIR)/granary/code_cache.o
 GR_OBJS += $(BIN_DIR)/granary/emit_utils.o
 GR_OBJS += $(BIN_DIR)/granary/hash_table.o
@@ -195,6 +201,7 @@ GR_OBJS += $(BIN_DIR)/granary/perf.o
 GR_OBJS += $(BIN_DIR)/granary/utils.o
 GR_OBJS += $(BIN_DIR)/granary/trace_log.o
 GR_OBJS += $(BIN_DIR)/granary/dynamic_wrapper.o
+GR_OBJS += $(BIN_DIR)/granary/allocator.o
 GR_OBJS += $(BIN_DIR)/granary/init.o
 
 # Granary wrapper dependencies
@@ -202,7 +209,6 @@ GR_OBJS += $(BIN_DIR)/granary/wrapper.o
 
 # Granary (x86) dependencies
 GR_OBJS += $(BIN_DIR)/granary/x86/utils.o
-GR_OBJS += $(BIN_DIR)/granary/x86/direct_branch.o
 GR_OBJS += $(BIN_DIR)/granary/x86/attach.o
 GR_OBJS += $(BIN_DIR)/granary/x86/dynamic_wrapper_of.o
 GR_OBJS += $(BIN_DIR)/granary/x86/stack.o
@@ -393,20 +399,25 @@ ifeq (1,$(GR_TESTS))
     GR_OBJS += $(BIN_DIR)/tests/test_lock_inc.o
 	GR_OBJS += $(BIN_DIR)/tests/test_mat_mul.o
 	GR_OBJS += $(BIN_DIR)/tests/test_md5.o
-	#GR_OBJS += $(BIN_DIR)/tests/test_sigsetjmp.o
+	GR_OBJS += $(BIN_DIR)/tests/test_sigsetjmp.o
+	GR_OBJS += $(BIN_DIR)/tests/test_trace_block_split.o
 endif
 
 GR_FLOAT_FLAGS = -mno-mmx -mno-sse -mno-sse2 -mno-mmx -mno-3dnow
 
 # User space.
 ifeq ($(KERNEL),0)
+	
+	ifeq ($(GR_GCC),1)
+		GR_FLOAT_FLAGS += -mpreferred-stack-boundary=4
+	endif
+
 	GR_INPUT_TYPES = $(SOURCE_DIR)/granary/user/posix/types.h
 	GR_OUTPUT_TYPES = $(SOURCE_DIR)/granary/gen/user_types.h
 	GR_OUTPUT_WRAPPERS = $(SOURCE_DIR)/granary/gen/user_wrappers.h
 	GR_DETACH_FILE = $(SOURCE_DIR)/granary/gen/user_detach.inc
 	
 	# User-specific versions of granary functions.
-	GR_OBJS += $(BIN_DIR)/granary/user/allocator.o
 	GR_OBJS += $(BIN_DIR)/granary/user/state.o
 	GR_OBJS += $(BIN_DIR)/granary/user/printf.o
 	
@@ -448,9 +459,9 @@ ifeq ($(KERNEL),0)
 	
 	GR_LD_PREFIX_FLAGS += $(GR_EXTRA_LD_FLAGS) $(GR_LD_PREFIX_SPECIFIC)
 	GR_LD_SUFFIX_FLAGS += -lm $(GR_LD_SUFFIX_SPECIFIC)
-	GR_ASM_FLAGS += -DGRANARY_IN_KERNEL=0
-	GR_CC_FLAGS += -DGRANARY_IN_KERNEL=0 $(GR_FLOAT_FLAGS)
-	GR_CXX_FLAGS += -DGRANARY_IN_KERNEL=0 $(GR_FLOAT_FLAGS)
+	GR_ASM_FLAGS += -DCONFIG_ENV_KERNEL=0
+	GR_CC_FLAGS += -DCONFIG_ENV_KERNEL=0 $(GR_FLOAT_FLAGS)
+	GR_CXX_FLAGS += -DCONFIG_ENV_KERNEL=0 $(GR_FLOAT_FLAGS)
 	
 	GR_MAKE += $(GR_CC) -c $(BIN_DIR)/deps/dr/x86/x86.S -o $(BIN_DIR)/deps/dr/x86/x86.o ; 
 	GR_MAKE += $(GR_CC) $(GR_DEBUG_LEVEL) $(GR_LD_PREFIX_FLAGS) $(GR_OBJS)
@@ -477,7 +488,7 @@ endef
 
 # Kernel space.
 else
-	GR_COMMON_KERNEL_FLAGS = -DGRANARY_IN_KERNEL=1 -DGRANARY_USE_PIC=0
+	GR_COMMON_KERNEL_FLAGS = -DCONFIG_ENV_KERNEL=1 -DGRANARY_USE_PIC=0
 	
 	ifneq (,$(findstring clang,$(GR_CC))) # clang
 		GR_COMMON_KERNEL_FLAGS += -mkernel -mcmodel=kernel -fno-builtin
@@ -511,13 +522,14 @@ else
 	# Kernel-specific versions of granary functions.
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/module.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/syscall.o
+	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/mm.o
+	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/schedule.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/user_address.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/state.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/wrappers.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/hotpatch.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/state.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/interrupt.o
-	GR_OBJS += $(BIN_DIR)/granary/kernel/allocator.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/printf.o
 	
 	# Toggle whole-kernel instrumentation.
@@ -550,7 +562,7 @@ else
 	
 	GR_TYPE_CC_FLAGS += $(GR_COMMON_KERNEL_FLAGS)
 	GR_TYPE_CXX_FLAGS += $(GR_COMMON_KERNEL_FLAGS)
-	GR_ASM_FLAGS += -DGRANARY_IN_KERNEL=1 -DGRANARY_USE_PIC=0
+	GR_ASM_FLAGS += -DCONFIG_ENV_KERNEL=1 -DGRANARY_USE_PIC=0
 	GR_CC_FLAGS += $(GR_COMMON_KERNEL_FLAGS) -S
 	GR_CXX_FLAGS += $(GR_COMMON_KERNEL_FLAGS) -S
 	

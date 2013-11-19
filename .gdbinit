@@ -56,6 +56,7 @@ if !$in_user_space
   b __stack_chk_fail
   b do_spurious_interrupt_bug
   b report_bug
+  b dump_stack
   #b kernel/hung_task.c:101
 end
 
@@ -123,18 +124,92 @@ end
 define get-bb-info
   set language c++
   set $bb = 0
+
+  # Find the fragment locator
   set $__addr = (unsigned long) $arg0
-  if 0 != ($__addr % 8)
-    set $__addr = $__addr - ($__addr % 8)
+  set $__pc = (granary::app_pc) $arg0
+  set $__base_addr = (unsigned long) GRANARY_EXEC_START
+  set $__offs = $__addr - $__base_addr
+  set $__index = $__offs / granary::FRAGMENT_SLAB_SIZE
+  set $__locator = (granary::fragment_locator *) granary::detail::FRAGMENT_SLABS[$__index]
+
+  # Binary search in the locator to find the fragment's
+  # basic block info.
+
+  set $__first = 0
+  set $__last = $__locator->next_index - 1
+  set $__mid = ($__first + $__last) / 2
+  set $bb = 0
+  set $trace = 0
+  
+  while !$bb && !$trace && ($__first <= $__mid) && ($__mid <= $__last)
+    set $__curr = $__locator->fragments[$__mid]
+  
+    if $__curr.is_trace
+      set $__trace = (granary::trace_info *) (((uintptr_t) $__curr.trace) & ~0x1ULL)
+
+      if $__trace->start_pc <= $__pc
+
+        # Found the fragment
+        if $__pc < ($__trace->start_pc + $__trace->num_bytes)
+          set $trace = $__trace
+
+        # Not in lower half
+        else
+          set $__first = $__mid + 1
+        end
+      
+      # Not in upper half
+      else
+        set $__last = $__mid - 1
+      end
+
+    else
+      set $__block = $__curr.block
+      if $__block->start_pc <= $__pc
+
+        # Found the fragment
+        if $__pc < ($__block->start_pc + $__block->num_bytes)
+          set $bb = $__block
+
+        # Not in lower half
+        else
+          set $__first = $__mid + 1
+        end
+
+      # Not in upper half
+      else
+        set $__last = $__mid - 1
+      end
+    end
+
+    set $__mid = ($__first + $__last) / 2
   end
 
-  set $__addr = (uint32_t *) $__addr
-  while (*$__addr) != 0xD4D5D682
-    set $__addr = $__addr + 1
+  if $trace
+    set $__i = 0
+    while $__i < $trace->num_blocks && !$bb
+      set $__bb = &($trace->info[$__i])
+      if $__bb->start_pc <= $__pc && $__pc < ($__bb->start_pc + $__bb->num_bytes)
+        set $bb = $__bb
+      end
+      set $__i = $__i + 1
+    end
   end
 
-  set $bb = (granary::basic_block_info *) $__addr
   dont-repeat
+end
+
+
+# unmangle-address ADDR
+#
+# Returns an unmangled version of ADDR.
+define unmangle-address
+  if $in_user_space
+    set $unmangled_address = ~(0xFFFFULL << 48) & $arg0
+  else
+    set $unmangled_address = (0xFFFFULL << 48) | $arg0
+  end
 end
 
 
@@ -147,11 +222,21 @@ define p-bb-info
 
   # Find the basic block.
   get-bb-info $arg0
+
+  p-bb-info-impl
+end
+define p-bb-info-impl
   
+  set $bb = $arg0
   set $__bb = $bb
   set $__bb_addr = (unsigned long) $bb 
-  set $__policy_addr = &($__bb->policy_bits)
+
+  set $__policy_addr = &($__bb->generating_pc.as_policy_address.policy_bits)
   set $__policy = ((granary::instrumentation_policy *) $__policy_addr)
+  set $__gen_pc = $__bb->generating_pc.as_uint
+
+  unmangle-address $__gen_pc
+  set $__gen_pc = $unmangled_address
 
   # Print the module info for the app pc of this basic block.
   if !$in_user_space
@@ -161,15 +246,24 @@ define p-bb-info
 
   # Print the info.
   printf "Basic block info:\n"
-  printf "   App address: %p\n", $__bb->generating_pc
-  printf "   Stub instructions: %p\n", ($__bb_addr - $__bb->num_bytes)
-  printf "   Instructions: %p\n", ($__bb_addr - $__bb->num_bytes + $__bb->num_patch_bytes)
-  printf "   Is indirect CTI target: %d\n", $__policy->u.is_indirect_target
-  printf "   Is return target: %d\n", $__policy->u.is_return_target
-  printf "   Is in XMM context: %d\n", $__policy->u.is_in_xmm_context
-  printf "   Is in host context: %d\n", $__policy->u.is_in_host_context
+  printf "   App:\n"
+  printf "      Code: %p\n", (void *) $__gen_pc
+  printf "      Num instructions: %d\n", $__bb->generating_num_instructions
+  printf "   Code cache:\n"
+  printf "      Code: %p\n", (void *) $__bb->start_pc
+  printf "      Num instructions: %d\n", $__bb->num_instructions
+  printf "   Policy properties:\n"
+  printf "      Is in XMM context: %d\n", $__policy->u.is_in_xmm_context
+  printf "      Is in host context: %d\n", $__policy->u.is_in_host_context
+  printf "      Accesses user data: %d\n", $__policy->u.accesses_user_data
+  printf "      Return address in code cache: %d\n", $__policy->u.can_direct_return
+  printf "   Num blocks in trace: %d\n", $__bb->num_bbs_in_trace
+  if !$in_user_space
+    printf "   Exception table entry: %p\n", $__bb->user_exception_metadata
+  end
   printf "   Policy ID: %d\n", $__policy->u.id
-  printf "   Instrumentation Function: "
+  printf "   Instrumentation Function:"
+  printf "\n      "
   if 1 == $__policy->u.is_in_host_context
     info sym (void *) granary::instrumentation_policy::HOST_VISITORS[$__policy->u.id]
   else
@@ -180,18 +274,15 @@ define p-bb-info
 end
 
 
-# x-ins START END
+# x-ins START NUM
 #
-# Examine the instructions in the range [START, END).
+# Examine NUM instructions starting from START
 define x-ins
   set $__start = (uint64_t) $arg0
-  set $__end = (uint64_t) $arg1
-  set $__dont_exit = 1
-  set $__len = 0
-  set $__in = (uint8_t *) 0
-  set $num_ins = 0
+  set $__len = (int) $arg1
 
-  while $__dont_exit
+  while $__len > 0
+    set $__len = $__len - 1
     set $__orig_start = $__start
 
     python None ; \
@@ -202,13 +293,9 @@ define x-ins
         "set $__start = $_\n", \
         from_tty=True, to_string=True)
 
-    set $__in = (uint8_t *) $__start
-    if $__start == $__end || 0xEA == *$__in || 0xD4 == *$__in || 0x82 == *$__in
-      set $__dont_exit = 0
-    end 
     x/i $__orig_start
-    set $num_ins = $num_ins + 1
   end
+
   dont-repeat
 end
 
@@ -226,34 +313,21 @@ define p-bb
 
   get-bb-info $arg0
   set $__bb_info = $bb
-  set $__bb_info_addr = (uint64_t) $bb
-  set $__bb_stub = $__bb_info_addr - $__bb_info->num_bytes
-  set $__bb_start = $__bb_stub + $__bb_info->num_patch_bytes
-
-  if $__bb_stub != $__bb_start
-    printf "Stub instructions:\n"
-    x-ins $__bb_stub $__bb_start
-    set $__num_stub_ins = $num_ins
-    printf "\n"
-  end
+  set $__bb_start = $__bb_info->start_pc
 
   printf "Translated instructions:\n"
-  x-ins $__bb_start $__bb_info_addr
-  set $__num_trans_ins = $num_ins
+  x-ins $__bb_info->start_pc $__bb_info->num_instructions
   printf "\n"
+
+  unmangle-address $__bb_info->generating_pc.as_uint
+  set $__in_start_pc = $unmangled_address
 
   printf "Original instructions:\n"
-  set $__in_start = $__bb_info->generating_pc
-  set $__in_end = $__in_start + $__bb_info->generating_num_bytes
-  x-ins $__in_start $__in_end
-  set $__num_ins = $num_ins
+  x-ins $__in_start_pc $__bb_info->generating_num_instructions
   printf "\n"
 
-  p-bb-info $__bb_info
+  p-bb-info-impl $__bb_info
   
-  printf "   Number of stub instructions: %d\n", $__num_stub_ins
-  printf "   Number of translated instructions: %d\n", $__num_trans_ins
-  printf "   Number of original instructions: %d\n", $__num_ins
   dont-repeat
 end
 

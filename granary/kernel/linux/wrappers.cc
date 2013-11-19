@@ -14,7 +14,7 @@
 /// their functions are executed. This is here because there are ways to get
 /// work structs registered through macros/inline functions, thus bypassing
 /// wrapping.
-#if defined(DETACH_ADDR_process_one_work) && CONFIG_ENABLE_WRAPPERS
+#if defined(DETACH_ADDR_process_one_work) && CONFIG_FEATURE_WRAPPERS
     PATCH_WRAPPER_VOID(process_one_work, (struct worker *worker, struct work_struct *work), {
         PRE_OUT_WRAP(work);
         process_one_work(worker, work);
@@ -82,19 +82,19 @@
 
 /// Wraps memset to try to make sure we never memset over existing code cache
 /// code.
-#if CONFIG_ENABLE_ASSERTIONS && defined(DETACH_ADDR_memset) && 0
+#if CONFIG_DEBUG_ASSERTIONS && defined(DETACH_ADDR_memset) && 0
     extern "C" {
 
         // Defined in module.c, actually as unsigned long long, but for
         // comparison's sake, it's easier to declare them differently here.
-        extern uint8_t *EXEC_START;
+        extern uint8_t *GRANARY_EXEC_START;
         extern uint8_t *CODE_CACHE_END;
     }
 
     PATCH_WRAPPER(memset, (void *), (uint8_t *addr, uint8_t val, size_t size), {
 
         // Slow path: check that all bytes are zero first.
-        if(addr >= EXEC_START && (addr + size) <= CODE_CACHE_END) {
+        if(addr >= GRANARY_EXEC_START && (addr + size) <= CODE_CACHE_END) {
             bool reported_issue(false);
             for(size_t i(0); i < size; ++i) {
                 if(!reported_issue && 0xCC != addr[i]) {
