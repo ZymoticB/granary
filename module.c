@@ -44,6 +44,7 @@
 #include "granary/kernel/linux/module.h"
 
 #define WRAP_FOR_DETACH(func)
+#define WRAP_ALIAS(func, alias)
 #define DETACH(func)
 #define TYPED_DETACH(func)
 
@@ -67,7 +68,7 @@ MODULE_LICENSE("GPL");
 
 
 /// Configuration for RelayFS.
-#define SUBBUF_SIZE 262144
+#define SUBBUF_SIZE 1048576
 #define N_SUBBUFS 4
 struct rchan *GRANARY_RELAY_CHANNEL = NULL;
 
@@ -194,13 +195,24 @@ static struct kernel_module KERNEL_MODULE = {
 };
 
 
+static struct kernel_module UNKNOWN_MODULE = {
+    .is_granary = 0,
+    .is_instrumented = 0,
+    .address = NULL,
+    .text_begin = (void *) MODULE_TEXT_START,
+    .text_end = (void *) MODULE_TEXT_END,
+    .name = "unknown",
+    .next = NULL
+};
+
+
 static int DEVICE_IS_OPEN = 0;
 static int DEVICE_IS_INITIALISED = 0;
 
 
 /// Returns the kernel module information for a given app address.
 const struct kernel_module *kernel_get_module(uintptr_t addr) {
-    struct kernel_module *found_mod = NULL;
+    struct kernel_module *found_mod = &UNKNOWN_MODULE;
     if(MODULE_TEXT_START <= addr && addr < MODULE_TEXT_END) {
         struct kernel_module *mod;
         for(mod = LOADED_MODULES; mod; mod = mod->next) {

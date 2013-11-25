@@ -20,6 +20,12 @@ namespace granary {
     }
 
 
+    /// Operand that represents a PC stored somewhere in memory.
+    operand mem_instr_(dynamorio::instr_t *in) {
+        return dynamorio::opnd_create_mem_instr(in, 0, dynamorio::OPSZ_PTR);
+    }
+
+
     /// used frequently in instruction functions
     typename dynamorio::dcontext_t *instruction::DCONTEXT = nullptr;
 
@@ -387,6 +393,10 @@ namespace granary {
     /// Note: This removed all elements from the argument list.
     void instruction_list::extend(instruction_list &that) throw() {
 
+        if(!that.length_) {
+            return;
+        }
+
         length_ += that.length_;
 
         if(!last_) {
@@ -659,7 +669,10 @@ namespace granary {
     /// of bytes.
     ///
     /// Note: This will not do any fancy jump resolution, alignment, etc.
-    app_pc instruction_list::stage_encode(app_pc staged_pc, app_pc final_pc) throw() {
+    app_pc instruction_list::stage_encode(
+        app_pc staged_pc,
+        app_pc final_pc
+    ) throw() {
         if(!length()) {
             return staged_pc;
         }

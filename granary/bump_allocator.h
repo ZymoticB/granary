@@ -40,6 +40,12 @@ namespace granary {
     };
 
 
+    enum free_memory_hint {
+        FREE_HINT_KEEP_SLAB,
+        FREE_HINT_TRY_FREE_SLAB
+    };
+
+
     /// Defines a generic bump pointer allocator. The allocator is configured
     /// by the Config type.
     ///
@@ -79,19 +85,9 @@ namespace granary {
             // Minimum alignment for all allocated objects.
             MIN_ALIGN = Config::MIN_ALIGN,
 
-            // Adjusted bump_pointer_slab size for allocating executable memory.
-            SLAB_SIZE_ = Config::SLAB_SIZE,
-            SLAB_SIZE = IF_KERNEL_ELSE(
-                    SLAB_SIZE_,
-                    IS_EXECUTABLE
-                        ? (SLAB_SIZE_ + ALIGN_TO(SLAB_SIZE_, PAGE_SIZE))
-                        : SLAB_SIZE_),
+            SLAB_SIZE = Config::SLAB_SIZE,
 
             EXEC_WHERE = Config::EXEC_WHERE,
-
-            // Alignment within the bump_pointer_slab for the first allocated
-            // memory
-            FIRST_ALLOCATION_ALIGN = IS_EXECUTABLE ? PAGE_SIZE : 16,
 
             // Value to default-initialize the memory with.
             MEMSET_VALUE = IS_EXECUTABLE ? 0xCC : 0
@@ -212,12 +208,13 @@ namespace granary {
                     detail::global_allocate_executable(size, EXEC_WHERE));
                 found->size = size;
             } else {
-                found->memory = allocate_memory<uint8_t>(SLAB_SIZE);
+                found->memory = allocate_memory<uint8_t>(size);
                 found->size = size;
             }
 
         initialise:
             memset(found->memory, MEMSET_VALUE, found->size);
+            ASSERT(found->size >= SLAB_SIZE);
             found->index = 0;
             found->remaining = found->size;
             found->next = nullptr;
@@ -242,12 +239,16 @@ namespace granary {
 
             ASSERT(slab_size >= SLAB_SIZE);
             IF_TEST( unsigned i(0); )
-            for(; IF_TEST(i < 3); IF_TEST(++i)) {
+            for(IF_TEST( bool got_slab(false) ); IF_TEST(i < 3); IF_TEST(++i)) {
+
+                ASSERT(!got_slab);
 
                 // Allocate a slab if we're missing one or if this slab appears
                 // to be unable to service out current request.
                 if(!curr || curr->remaining < size) {
+                    ASSERT(!curr || curr->index > 0);
                     bump_pointer_slab *new_curr(allocate_slab(slab_size));
+                    IF_TEST( got_slab = true; )
                     new_curr->next = curr;
                     curr = new_curr;
                     if(!first) {
@@ -377,12 +378,40 @@ namespace granary {
             return arena;
         }
 
+    private:
+
+        bool try_free_curr(bool had_slab) throw() {
+            if(!had_slab || !curr->index) {
+                bump_pointer_slab *dead_slab(curr);
+                curr = curr->next;
+                dead_slab->next = free;
+                free = dead_slab;
+                return true;
+            }
+            return false;
+        }
+
+        void try_share_free(void) throw() {
+            if(free && global_free_lock.try_acquire()) {
+                *(free->connect()) = global_free;
+                global_free = free;
+                global_free_lock.release();
+                free = nullptr;
+            }
+        }
+
+    public:
+
         template <typename T>
         inline const T *allocate_staged(void) throw() {
             IF_TEST( const void *allocator(__builtin_return_address(0)); )
             acquire();
             IF_TEST( last_allocator = allocator; )
+            bool had_slab(curr != nullptr);
             void *ret(allocate_bare(MIN_ALIGN, 0));
+            if(SHARE_DEAD_SLABS && try_free_curr(had_slab)) {
+                try_share_free();
+            }
             release();
             return unsafe_cast<const T *>(ret);
         }
@@ -418,7 +447,7 @@ namespace granary {
         /// If this is a shared allocator, or if the allocator isn't shared but
         /// follows a locking discipline that uses `lock_coarse` (coarse-grained
         /// allocator locking) then this function should be used VERY carefully.
-        void free_last(void) throw() {
+        void free_last(free_memory_hint hint=FREE_HINT_TRY_FREE_SLAB) throw() {
             IF_TEST( const void *allocator(__builtin_return_address(0)); )
             acquire();
             IF_TEST( last_allocator = allocator; )
@@ -440,6 +469,12 @@ namespace granary {
                     &(curr->memory[curr->index]),
                     MEMSET_VALUE,
                     last_allocation_size);
+
+                if(FREE_HINT_TRY_FREE_SLAB == hint
+                && SHARE_DEAD_SLABS
+                && try_free_curr(true)) {
+                    try_share_free();
+                }
             }
 
             last_allocation_size = 0;

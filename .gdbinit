@@ -58,6 +58,8 @@ if !$in_user_space
   b report_bug
   b dump_stack
   #b kernel/hung_task.c:101
+else
+  b __assert_fail
 end
 
 
@@ -130,7 +132,7 @@ define get-bb-info
   set $__pc = (granary::app_pc) $arg0
   set $__base_addr = (unsigned long) GRANARY_EXEC_START
   set $__offs = $__addr - $__base_addr
-  set $__index = $__offs / granary::FRAGMENT_SLAB_SIZE
+  set $__index = $__offs / granary::SLAB_SIZE
   set $__locator = (granary::fragment_locator *) granary::detail::FRAGMENT_SLABS[$__index]
 
   # Binary search in the locator to find the fragment's
@@ -246,6 +248,7 @@ define p-bb-info-impl
 
   # Print the info.
   printf "Basic block info:\n"
+  printf "   State: %p\n", (void *) $__bb->state
   printf "   App:\n"
   printf "      Code: %p\n", (void *) $__gen_pc
   printf "      Num instructions: %d\n", $__bb->generating_num_instructions

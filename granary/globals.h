@@ -13,9 +13,9 @@
 #ifndef GRANARY_DONT_INCLUDE_CSTDLIB
 #   include <cstddef>
 #   include <new>
+#   include <stdint.h>
 #endif
 
-#include <stdint.h>
 
 #ifndef GRANARY
 #   define GRANARY 1
@@ -111,9 +111,9 @@
 /// Should execution be traced? This is a debugging option, not to be confused
 /// with the trace allocator or trace building, where we record the entry PCs
 /// of basic blocks as they execute for later inspection by gdb.
-#define CONFIG_DEBUG_TRACE_EXECUTION 1
+#define CONFIG_DEBUG_TRACE_EXECUTION 0
 #define CONFIG_DEBUG_TRACE_PRINT_LOG 0
-#define CONFIG_DEBUG_TRACE_RECORD_REGS 0
+#define CONFIG_DEBUG_TRACE_RECORD_REGS 1
 #define CONFIG_DEBUG_NUM_TRACE_LOG_ENTRIES 1024
 
 
@@ -124,7 +124,7 @@
 /// Enable the trace allocator? The trace allocator tries to approximate trace
 /// building by having a basic block fragment allocated in the same slab (if
 /// possible) as its successor basic block.
-#if GRANARY_ENV_KERNEL
+#if CONFIG_ENV_KERNEL
 #   define CONFIG_ENABLE_TRACE_ALLOCATOR 1
 #else
 #   define CONFIG_ENABLE_TRACE_ALLOCATOR 0 // Can't change.
@@ -159,6 +159,14 @@
 #define CONFIG_TRACE_ALLOCATE_ENTRY_CPU 0
 
 
+/// Should we do a delayed takeover of the kernel table? This is only relevant
+/// for whole-kernel instrumentation.
+///
+/// Note: Disable with 0, or enable by setting N >= 1 as the number of
+///       milliseconds to pause between takeover periods.
+#define CONFIG_DELAYED_TAKEOVER 0
+
+
 /// Should we try to aggressively build traces at basic block translation
 /// time? This implies a more transactional approach to filling the code cache.
 ///
@@ -167,24 +175,24 @@
 ///
 /// Note: This is a very very aggressive translation approach, and might
 ///       perform badly with policies.
-#define CONFIG_FOLLOW_CONDITIONAL_BRANCHES 1
+///
+/// Note: If a non-zero number is given, then that number represents the maximum
+///       number of conditional branch fall-throughs to follow.
+#define CONFIG_FOLLOW_FALL_THROUGH_BRANCHES 10000
+
+
+/// If we're following fall-through branches, then this option lets us also
+/// follow conditional branches.
+///
+/// Note: This doesn't really work :-S
+#define CONFIG_FOLLOW_CONDITIONAL_BRANCHES 0
 
 
 /// Enable performance counters and reporting. Performance counters measure
 /// things like number of translated bytes, number of code cache bytes, etc.
 /// These counters allow us to get a sense of how (in)efficient Granary is with
 /// memory, etc.
-#define CONFIG_DEBUG_PERF_COUNTS 1
-
-
-/// Enable profiling of indirect jumps and indirect calls.
-///
-/// TODO: Re-implement IBL profiling.
-#if CONFIG_DEBUG_PERF_COUNTS
-#   define CONFIG_DEBUG_PROFILE_IBL 0
-#else
-#   define CONFIG_DEBUG_PROFILE_IBL 0 // can't change
-#endif
+#define CONFIG_DEBUG_PERF_COUNTS 0
 
 
 /// Debug the initialisation of Granary, but make sure that it doesn't actually
@@ -235,6 +243,7 @@
 /// Set the 1 iff we should run test cases (before doing anything else).
 #define CONFIG_DEBUG_ASSERTIONS 1
 
+
 #if CONFIG_ENV_KERNEL
 #   define CONFIG_DEBUG_RUN_TEST_CASES 0 // don't change.
 #else
@@ -276,7 +285,7 @@ namespace granary {
 
     /// Program counter type.
     typedef dynamorio::app_pc app_pc;
-    typedef const uint8_t *const_app_pc;
+    typedef const unsigned char *const_app_pc;
 
 
     enum {
@@ -457,14 +466,13 @@ extern "C" {
     extern granary::eflags granary_load_flags(void);
     extern void granary_store_flags(granary::eflags);
 
-    extern uintptr_t granary_get_gs_base(void);
-    extern uintptr_t granary_get_fs_base(void);
 
     extern void *granary_memcpy(void *, const void *, size_t);
     extern void *granary_memset(void *, int, size_t);
     extern int granary_memcmp(const void *, const void *, size_t);
     extern size_t granary_strlen(const char *);
     extern char *granary_strncpy(char *destination, const char *source, size_t num);
+
 
 #   define memcpy granary_memcpy
 #   define memset granary_memset
@@ -482,14 +490,6 @@ extern "C" {
 #endif /* CONFIG_DEBUG_RUN_TEST_CASES */
 
 
-    /// Perform an 8-byte atomic write.
-    extern void granary_atomic_write8(uint64_t, uint64_t *);
-
-
-    /// Get the current stack pointer.
-    extern uint64_t granary_get_stack_pointer(void);
-
-
     /// Used for switching to a CPU-private stack.
     extern void granary_enter_private_stack(void);
     extern void granary_exit_private_stack(void);
@@ -505,19 +505,20 @@ extern "C" {
 
 #include "granary/allocator.h"
 #include "granary/utils.h"
-#ifndef GRANARY_DONT_INCLUDE_CSTDLIB
-#   include "granary/bump_allocator.h"
-#endif
 #include "granary/init.h"
 #include "granary/perf.h"
 #include "granary/printf.h"
 #include "granary/trace_log.h"
 
-#include "granary/kernel/interrupt.h"
 
+#ifndef GRANARY_DONT_INCLUDE_CSTDLIB
+#   include "granary/bump_allocator.h"
+#   include "granary/kernel/interrupt.h"
 #if CONFIG_FEATURE_INSTRUMENT_HOST && CONFIG_ENV_KERNEL
-#   include "granary/kernel/syscall.h"
+#       include "granary/kernel/syscall.h"
 #endif
+#endif
+
 
 namespace granary {
     /// Log some data from Granary to the external world.

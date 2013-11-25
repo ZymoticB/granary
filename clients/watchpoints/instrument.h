@@ -624,6 +624,9 @@ namespace client {
 
                 // Makes it so that we can't overwrite any registers used in
                 // the instruction.
+                if(!in.next().is_valid()) {
+                    tracker.live_regs.revive_all();
+                }
                 tracker.live_regs.revive(in);
 
                 // Track the carry flag. The carry flag will be used to detect
@@ -679,9 +682,6 @@ namespace client {
                     in = tracker.in;
                     in.for_each_operand(wp::find_memory_operand, tracker);
                 }
-
-                IF_USER( instruction first(ls.insert_before(in, label_())); )
-                IF_USER( instruction last(ls.insert_after(in, label_())); )
 
                 // Apply generic watchpoint instrumentation to the necessary
                 // operands.

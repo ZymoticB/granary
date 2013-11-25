@@ -47,14 +47,6 @@ GLOBAL_LABEL(granary_bswap16:)
 END_FUNC(granary_bswap16)
 
 
-/// Returns %gs:0.
-DECLARE_FUNC(granary_get_gs_base)
-GLOBAL_LABEL(granary_get_gs_base:)
-    movq %gs:0, %rax;
-    ret;
-END_FUNC(granary_get_gs_base)
-
-
 /// Declare a Granary-version of memcpy. This is not equivalent to the
 /// generalized memcpy: it does not care about alignment or overlaps.
 DECLARE_FUNC(granary_memcpy)
@@ -103,30 +95,6 @@ GLOBAL_LABEL(granary_memcmp:)
 .granary_memcmp_done:
     ret;
 END_FUNC(granary_memcmp)
-
-
-/// Returns %fs:0.
-DECLARE_FUNC(granary_get_fs_base)
-GLOBAL_LABEL(granary_get_fs_base:)
-    movq %fs:0, %rax;
-    ret;
-END_FUNC(granary_get_fs_base)
-
-
-/// Atomically write 8 bytes to memory.
-DECLARE_FUNC(granary_atomic_write8)
-GLOBAL_LABEL(granary_atomic_write8:)
-    lock xchg %ARG1, (%ARG2);
-    ret;
-END_FUNC(granary_atomic_write8)
-
-
-DECLARE_FUNC(granary_get_stack_pointer)
-GLOBAL_LABEL(granary_get_stack_pointer:)
-    mov %rsp, %rax;
-    lea 0x8(%rax), %rax;
-    ret;
-END_FUNC(granary_get_stack_pointer)
 
 
 DECLARE_FUNC(granary_disable_interrupts)

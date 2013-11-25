@@ -62,11 +62,18 @@ GR_DEBUG_LEVEL = -g3
 # be added to the kernel. This is required by things like the `rcudbg` tool.
 GR_ANNOTATIONS ?= 0
 
+
+GR_EXTRA_CC_FLAGS ?=
+GR_EXTRA_CXX_FLAGS ?=
+GR_EXTRA_LD_FLAGS ?= 
+
+
 # Optimisation level.
 ifeq ($(KERNEL),0)
 	GR_DEBUG_LEVEL += -O0
 else
 	GR_DEBUG_LEVEL += -O3
+	#GR_EXTRA_LD_FLAGS += "-Wl,--strip-all"
 endif
 
 GR_LD_PREFIX_FLAGS = 
@@ -76,11 +83,18 @@ GR_CC_FLAGS = -I$(SOURCE_DIR)/ $(GR_DEBUG_LEVEL)
 GR_CXX_FLAGS = -I$(SOURCE_DIR)/ $(GR_DEBUG_LEVEL) -fno-rtti
 GR_CXX_FLAGS += -fno-exceptions -Wall -Werror -Wextra -Wstrict-aliasing=2
 GR_CXX_FLAGS += -Wno-variadic-macros -Wno-long-long -Wno-unused-function
-GR_CXX_FLAGS += -Wno-format-security -funit-at-a-time -Wshadow
+GR_CXX_FLAGS += -Wno-format-security -Wshadow
 
-GR_EXTRA_CC_FLAGS ?=
-GR_EXTRA_CXX_FLAGS ?=
-GR_EXTRA_LD_FLAGS ?=
+GR_CC_FLAGS += -fdata-sections -ffunction-sections -funit-at-a-time
+GR_CXX_FLAGS += -fdata-sections -ffunction-sections -funit-at-a-time
+
+# Try to mask some symbols.
+GR_EXTRA_LD_FLAGS += "-Wl,--defsym=memset=granary_memset"
+GR_EXTRA_LD_FLAGS += "-Wl,--defsym=memcpy=granary_memcpy"
+GR_EXTRA_LD_FLAGS += "-Wl,--defsym=memcmp=granary_memcmp"
+GR_EXTRA_LD_FLAGS += "-Wl,--defsym=strlen=granary_strlen"
+GR_EXTRA_LD_FLAGS += "-Wl,--defsym=strncpy=granary_strncpy"
+GR_EXTRA_LD_FLAGS += "-Wl,--gc-sections"
 
 # Options for generating type information.
 GR_TYPE_CC = $(GR_CC)
@@ -245,7 +259,6 @@ endif
 ifeq ($(GR_CLIENT),cfg)
 	GR_CXX_FLAGS += -DCLIENT_CFG
 	GR_OBJS += $(BIN_DIR)/clients/cfg/instrument.o
-	GR_OBJS += $(BIN_DIR)/clients/cfg/events.o
 	GR_OBJS += $(BIN_DIR)/clients/cfg/report.o
 endif
 
@@ -403,7 +416,10 @@ ifeq (1,$(GR_TESTS))
 	GR_OBJS += $(BIN_DIR)/tests/test_trace_block_split.o
 endif
 
+# Try to disable memset/memcpy/memmove synthesizing optimisations, as well as
+# optimisations that use SSE registers.
 GR_FLOAT_FLAGS = -mno-mmx -mno-sse -mno-sse2 -mno-mmx -mno-3dnow
+GR_FLOAT_FLAGS += -fno-builtin -ffreestanding
 
 # User space.
 ifeq ($(KERNEL),0)
@@ -411,7 +427,7 @@ ifeq ($(KERNEL),0)
 	ifeq ($(GR_GCC),1)
 		GR_FLOAT_FLAGS += -mpreferred-stack-boundary=4
 	endif
-
+	
 	GR_INPUT_TYPES = $(SOURCE_DIR)/granary/user/posix/types.h
 	GR_OUTPUT_TYPES = $(SOURCE_DIR)/granary/gen/user_types.h
 	GR_OUTPUT_WRAPPERS = $(SOURCE_DIR)/granary/gen/user_wrappers.h
@@ -419,7 +435,8 @@ ifeq ($(KERNEL),0)
 	
 	# User-specific versions of granary functions.
 	GR_OBJS += $(BIN_DIR)/granary/user/state.o
-	GR_OBJS += $(BIN_DIR)/granary/user/printf.o
+	GR_OBJS += $(BIN_DIR)/granary/user/posix/printf.o
+	GR_OBJS += $(BIN_DIR)/granary/user/posix/detach.o
 	
 	ifneq ($(GR_DLL),1)
 		GR_OBJS += $(BIN_DIR)/main.o
@@ -457,8 +474,8 @@ ifeq ($(KERNEL),0)
 		GR_LD_SUFFIX_SPECIFIC = -lrt -ldl -lcrypt
 	endif
 	
-	GR_LD_PREFIX_FLAGS += $(GR_EXTRA_LD_FLAGS) $(GR_LD_PREFIX_SPECIFIC)
-	GR_LD_SUFFIX_FLAGS += -lm $(GR_LD_SUFFIX_SPECIFIC)
+	GR_LD_PREFIX_FLAGS += $(GR_LD_PREFIX_SPECIFIC)
+	GR_LD_SUFFIX_FLAGS += -lm $(GR_LD_SUFFIX_SPECIFIC) $(GR_EXTRA_LD_FLAGS)
 	GR_ASM_FLAGS += -DCONFIG_ENV_KERNEL=0
 	GR_CC_FLAGS += -DCONFIG_ENV_KERNEL=0 $(GR_FLOAT_FLAGS)
 	GR_CXX_FLAGS += -DCONFIG_ENV_KERNEL=0 $(GR_FLOAT_FLAGS)
@@ -483,7 +500,7 @@ endef
 	# This is so that we can augment the detach table with internal libc symbols,
 	# etc.
 	define GR_GET_LD_LIBRARIES
-		$$($(GR_LDD) $(shell which $(GR_CC)) | $(GR_PYTHON) $(SOURCE_DIR)/scripts/generate_dll_detach_table.py >> $(GR_DETACH_FILE))
+		$$($(GR_LDD) $(shell which $(GR_CC)) | $(GR_PYTHON) $(SOURCE_DIR)/scripts/generate_dll_detach_table.py $(GR_OUTPUT_TYPES) > $(GR_DETACH_FILE))
 endef
 
 # Kernel space.
@@ -527,10 +544,10 @@ else
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/user_address.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/state.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/wrappers.o
+	GR_OBJS += $(BIN_DIR)/granary/kernel/linux/printf.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/hotpatch.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/state.o
 	GR_OBJS += $(BIN_DIR)/granary/kernel/interrupt.o
-	GR_OBJS += $(BIN_DIR)/granary/kernel/printf.o
 	
 	# Toggle whole-kernel instrumentation.
 	ifeq (1,$(GR_WHOLE_KERNEL))
@@ -591,6 +608,7 @@ endef
 
 	# get the addresses of kernel symbols
 	define GR_GET_LD_LIBRARIES
+		$$($(GR_PYTHON) $(SOURCE_DIR)/scripts/generate_detach_table.py $(GR_OUTPUT_TYPES) $(GR_DETACH_FILE))
 		$$($(GR_PYTHON) $(SOURCE_DIR)/scripts/generate_detach_addresses.py $(GR_DETACH_FILE))
 endef
 endif
@@ -699,7 +717,6 @@ endif
 # auto-generate the hash table stuff needed for wrappers and detaching
 detach: types
 	@echo "  DETACH [GR] $(GR_DETACH_FILE)"
-	@$(GR_PYTHON) $(SOURCE_DIR)/scripts/generate_detach_table.py $(GR_OUTPUT_TYPES) $(GR_DETACH_FILE)
 	@$(call GR_GET_LD_LIBRARIES)
 
 
@@ -710,6 +727,7 @@ env:
 	@-mkdir bin > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/granary > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/granary/user > /dev/null 2>&1 ||:
+	@-mkdir $(BIN_DIR)/granary/user/posix > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/granary/kernel > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/granary/kernel/linux > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/granary/gen > /dev/null 2>&1 ||:

@@ -28,17 +28,6 @@ extern "C" {
 namespace granary {
 
 
-    /// Hash table of previously constructed IBL entry stubs.
-    static operand reg_target_addr; // arg1, rdi
-    static operand reg_target_addr_16; // arg1_16, di
-
-
-    STATIC_INITIALISE_ID(ibl_lookup_regs, {
-        reg_target_addr = reg::arg1;
-        reg_target_addr_16 = reg::arg1_16;
-    })
-
-
     /// Make an IBL stub. This is used by indirect JMPs, CALLs, and RETs.
     /// The purpose of the stub is to set up the registers and stack in a
     /// canonical way for entry into the indirect branch lookup routine.
@@ -91,15 +80,24 @@ namespace granary {
         // Atomic swap, unfortunately, but we only expect this in user space,
         // and it hits the stack so it should be contention free.
         } else if(IBL_ENTRY_RETURN == ibl_kind) {
-            ls.insert_before(cti, xchg_(*reg::rsp, reg_target_addr));
-            target = reg_target_addr;
+            ls.insert_before(cti, xchg_(*reg::rsp, reg::indirect_target_addr));
+            target = reg::indirect_target_addr;
         }
 
         // Returns have already swapped `reg_target_addr` onto the stack.
         if(IBL_ENTRY_RETURN != ibl_kind) {
-            ibl.append(push_(reg_target_addr));
+            ibl.append(push_(reg::indirect_target_addr));
             stack_offset += sizeof(uintptr_t);
         }
+
+        // Spill `reg::indirect_clobber_reg`. We defer saving the flags on the
+        // stack so that we can store the source address in RAX, and used it
+        // for hashing.
+        //
+        // We spill in here to give stub lists (in clients) access to one
+        // guaranteed dead register, and the target address register.
+        ibl.append(push_(reg::indirect_clobber_reg));
+        stack_offset += sizeof(uintptr_t);
 
         // Adjust the target operand if it's on the stack
         if(dynamorio::BASE_DISP_kind == target.kind
@@ -130,14 +128,14 @@ namespace granary {
                 // Do an indirect load using abs address.
                 if(is_far_away(target_addr, estimator_pc)) {
                     ibl_tail.append(mangled(mov_imm_(
-                        reg_target_addr,
+                        reg::indirect_target_addr,
                         int64_(reinterpret_cast<uint64_t>(target_addr)))));
-                    target = *reg_target_addr;
+                    target = *reg::indirect_target_addr;
                     mangled_target = true;
                 }
             }
 
-            ibl_tail.append(mov_ld_(reg_target_addr, target));
+            ibl_tail.append(mov_ld_(reg::indirect_target_addr, target));
 
             // Notify higher levels of instrumentation that might be doing
             // memory operand interposition that this insruction should not be
@@ -147,25 +145,16 @@ namespace granary {
             }
 
         // Target is in a register; only load it if we need to.
-        } else if(reg_target_addr.value.reg != target.value.reg) {
-            ibl_tail.append(mov_ld_(reg_target_addr, target));
+        } else if(reg::indirect_target_addr.value.reg != target.value.reg) {
+            ibl_tail.append(mov_ld_(reg::indirect_target_addr, target));
         }
 
         // Instrument the memory instructions needed to complete this CALL
         // or JMP.
-        instruction ibl_tail_end(ibl_tail.append(label_()));
-
         if(IBL_ENTRY_CALL == ibl_kind || IBL_ENTRY_JMP == ibl_kind) {
             instrumentation_policy tail_policy(policy);
 
-            // Kill all flags so that the instrumentation can use them if
-            // possible.
-            //if(IBL_ENTRY_CALL == ibl_kind) {
-            //    ibl_tail.append(mangled(popf_()));
-            //}
-
             // Make sure all other registers appear live.
-            ibl_tail.append(mangled(jmp_(instr_(ibl_tail_end))));
             tail_policy.instrument(cpu, bb, ibl_tail);
             instruction_list_mangler sub_mangler(
                 cpu, bb, ibl_tail, stub_ls, policy, estimator_pc);
@@ -176,13 +165,7 @@ namespace granary {
 
         // Add the instructions back into the stub.
         for(instruction ibl_in(ibl.first()), next_ibl_in;
-            ibl_in.is_valid();
-            ibl_in = next_ibl_in) {
-
-            if(ibl_in == ibl_tail_end) {
-                break;
-            }
-
+            ibl_in.is_valid(); ibl_in = next_ibl_in) {
             next_ibl_in = ibl_in.next();
             ibl.remove(ibl_in);
             ls.insert_before(cti, ibl_in);
@@ -680,7 +663,7 @@ namespace granary {
             used_reg = dead_reg_id;
             first_in = ls.insert_before(in, mov_imm_(used_reg, int64_(addr)));
 
-        // spill a register, then use that register to load the value from
+        // Spill a register, then use that register to load the value from
         // memory. Note: the ordering of managing `first_in` is intentional and
         // done for delay propagation.
         } else {

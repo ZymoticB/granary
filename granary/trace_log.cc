@@ -65,7 +65,11 @@ namespace granary {
         item->code_cache_addr = code_cache_addr;
 
 #       if CONFIG_DEBUG_TRACE_RECORD_REGS
-        item->state = *state;
+
+        // Have to use our internal `memcpy`, because even when telling the
+        // compiler not to use xmm registers, it will sometimes optimize an
+        // assignment of `item->state = *state` into a libc `memcpy`.
+        memcpy(&(item->state), state, sizeof *state);
 
 #       else
         (void) state;
@@ -144,7 +148,7 @@ namespace granary {
         instruction in
     ) throw() {
         IF_USER( in = ls.insert_after(in,
-            lea_(reg::rsp, reg::rsp[-REDZONE_SIZE])) );
+            lea_(reg::rsp, reg::rsp[-REDZONE_SIZE])); )
 
         in = insert_cti_after(ls, in,
             trace_logger(),
@@ -154,7 +158,7 @@ namespace granary {
         in.set_mangled();
 
         IF_USER( in = ls.insert_after(in,
-            lea_(reg::rsp, reg::rsp[REDZONE_SIZE])) );
+            lea_(reg::rsp, reg::rsp[REDZONE_SIZE])); )
     }
 #endif /* CONFIG_DEBUG_TRACE_EXECUTION */
 
@@ -176,7 +180,9 @@ namespace granary {
 
         UNUSED(in_next);
 
-#   if 0
+        // TODO: It's a bit weird that this works in user space but not kernel
+        //       space!!
+#   if !CONFIG_ENV_KERNEL
         for(in = in_next; in.is_valid(); in = in_next) {
             in_next = in.next();
             if(in.is_return()) {
