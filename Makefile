@@ -301,6 +301,7 @@ ifeq ($(GR_CLIENT),everything_watched)
 	GR_CXX_FLAGS += -DCLIENT_WATCHPOINT_WATCHED
 	GR_WP_INCLUDE_DEFAULT = 1
 	GR_OBJS += $(BIN_DIR)/clients/watchpoints/clients/everything_watched/instrument.o
+	GR_OBJS += $(BIN_DIR)/clients/watchpoints/clients/everything_watched/report.o
 	
 	ifeq ($(KERNEL),0)
 		GR_OBJS += $(BIN_DIR)/clients/watchpoints/user/posix/signal.o

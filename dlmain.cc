@@ -14,6 +14,7 @@
 #include "granary/attach.h"
 #include "granary/detach.h"
 #include "granary/perf.h"
+#include "clients/report.h"
 
 #include <ucontext.h>
 
@@ -71,11 +72,16 @@ extern "C" {
     }
 
 
-#if CONFIG_DEBUG_PERF_COUNTS
+#if CONFIG_DEBUG_PERF_COUNTS || defined(CLIENT_report)
 
     __attribute__((destructor))
     static void granary_end_program(void) {
+#	if CONFIG_DEBUG_PERF_COUNTS
         granary::perf::report();
+#	endif
+#	ifdef CLIENT_report
+		client::report();
+#	endif
     }
 
     GRANARY_DETACH_POINT(granary_end_program)
