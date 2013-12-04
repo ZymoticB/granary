@@ -15,7 +15,8 @@
  || defined(CLIENT_RCUDBG) \
  || defined(CLIENT_WATCHPOINT_WATCHED) \
  || defined(CLIENT_WATCHPOINT_PROFILE) \
- || defined(CLIENT_WATCHPOINT_USER)
+ || defined(CLIENT_WATCHPOINT_USER) \
+ || defined(CLIENT_WATCHPOINT_ARK)
 #   include "clients/watchpoints/state.h"
 #endif
 

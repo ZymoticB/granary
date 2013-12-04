@@ -12,7 +12,8 @@
 
 #if defined(CLIENT_WATCHPOINT_BOUND) \
  || defined(CLIENT_WATCHPOINT_WATCHED) \
- || defined(CLIENT_WATCHPOINT_STATS)
+ || defined(CLIENT_WATCHPOINT_STATS) \
+ || defined(CLIENT_WATCHPOINT_ARK) 
 #   include "clients/watchpoints/user/posix/wrappers.h"
 #endif
 

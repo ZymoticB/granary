@@ -49,4 +49,8 @@
 #   include "clients/watchpoints/clients/user/state.h"
 #endif
 
+#ifdef CLIENT_WATCHPOINT_ARK
+#	include "clients/watchpoints/clients/ark/state.h"
+#endif
+
 #endif /* WATCHPOINTS_STATE_H_ */

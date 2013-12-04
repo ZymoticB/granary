@@ -21,7 +21,8 @@
  || defined(CLIENT_WATCHPOINT_AUGMENT) \
  || defined(CLIENT_WATCHPOINT_USER) \
  || defined(CLIENT_RCUDBG) \
- || defined(CLIENT_WATCHPOINT_WATCHED) 
+ || defined(CLIENT_WATCHPOINT_WATCHED) \
+ || defined(CLIENT_WATCHPOINT_ARK) 
 #   define CLIENT_report
 #endif
 

@@ -307,6 +307,17 @@ ifeq ($(GR_CLIENT),everything_watched)
 		GR_OBJS += $(BIN_DIR)/clients/watchpoints/user/posix/signal.o
 	endif
 endif
+ifeq ($(GR_CLIENT),ark)
+	GR_CXX_FLAGS += -DCLIENT_WATCHPOINT_ARK
+	GR_WP_INCLUDE_DEFAULT = 1
+	GR_OBJS += $(BIN_DIR)/clients/watchpoints/clients/ark/instrument.o
+	GR_OBJS += $(BIN_DIR)/clients/watchpoints/clients/ark/report.o
+	GR_OBJS += $(BIN_DIR)/clients/watchpoints/clients/ark/ark.o
+	
+	ifeq ($(KERNEL),0)
+		GR_OBJS += $(BIN_DIR)/clients/watchpoints/user/posix/signal.o
+	endif
+endif
 ifeq ($(GR_CLIENT),everything_watched_aug)
 	GR_CXX_FLAGS += -DCLIENT_WATCHPOINT_AUGMENT
 	GR_OBJS += $(BIN_DIR)/clients/watchpoints/instrument.o
@@ -713,6 +724,7 @@ env:
 	@-mkdir $(BIN_DIR)/clients/watchpoints/clients/leak_detector > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/clients/watchpoints/clients/leak_detector/kernel > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/clients/watchpoints/clients/everything_watched > /dev/null 2>&1 ||:
+	@-mkdir $(BIN_DIR)/clients/watchpoints/clients/ark > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/clients/watchpoints/clients/everything_watched_aug > /dev/null 2>&1 ||:
 	@-mkdir $(BIN_DIR)/clients/watchpoints/clients/bounds_checker > /dev/null 2>&1 ||:
 	

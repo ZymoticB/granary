@@ -15,6 +15,10 @@
 #   include "clients/watchpoints/clients/everything_watched/user/posix/wrappers.h"
 #endif
 
+#ifdef CLIENT_WATCHPOINT_ARK
+#	include "clients/watchpoints/clients/ark/user/posix/wrappers.h"
+#endif
+
 
 #ifdef CLIENT_WATCHPOINT_STATS
 #   include "clients/watchpoints/clients/everything_watched/user/posix/wrappers.h"
