@@ -37,7 +37,9 @@ GLOBAL_LABEL(granary_record_size:)
 	// Arg3 (rdx) has the size.
 
     // Get the return address into the basic block as Arg4 (rcx).
-    lea 32(%rsp), %rcx;
+	// 5 push instructions from the granary_size_check_<size>_<reg>
+	// entry point. ret_addr is at 40 bytes from current SP
+    lea 40(%rsp), %rcx;
 
     // Save the scratch registers.
     push %r8;
