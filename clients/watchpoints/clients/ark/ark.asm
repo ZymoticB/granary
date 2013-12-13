@@ -95,6 +95,7 @@ END_FUNC(granary_record_size)
 	mov %esi, %edi; @N@\
 	bswap %rsi; @N@\
 	mov $0x0, %esi; @N@\
+	bswap %rsi; @N@\
 	mov $ size, %rdx; @N@\
 	jmp SHARED_SYMBOL(granary_record_size); @N@\
     END_FUNC(CAT(granary_size_check_, size)) @N@@N@@N@\
